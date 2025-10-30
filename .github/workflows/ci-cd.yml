@@ -1,0 +1,58 @@
+name: XO Game CI-CD + Docker Deploy
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Step 1 - Checkout source code
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Step 2 - Set up Docker
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Step 3 - Log in to Docker Hub
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # Step 4 - Build Docker image
+      - name: Build Docker image
+        run: docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/xo-game:latest .
+
+      # Step 5 - Scan the image with Trivy
+      - name: Scan image with Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ secrets.DOCKERHUB_USERNAME }}/xo-game:latest
+          format: 'table'
+          exit-code: '1'
+          severity: 'CRITICAL,HIGH'
+
+      # Step 6 - Push to Docker Hub (if scan passes)
+      - name: Push Docker image
+        if: success()
+        run: docker push ${{ secrets.DOCKERHUB_USERNAME }}/xo-game:latest
+
+      # Step 7 - Deploy inside Docker (auto-run latest container)
+      - name: Deploy container
+        if: success()
+        run: |
+          echo "🛠️ Stopping old container..."
+          docker rm -f xo-game || true
+          echo "🚀 Starting new XO Game container..."
+          docker run -d --name xo-game \
+            -e DISPLAY=$DISPLAY \
+            -v /tmp/.X11-unix:/tmp/.X11-unix \
+            ${{ secrets.DOCKERHUB_USERNAME }}/xo-game:latest
+          echo "✅ XO Game successfully deployed in Docker!"
